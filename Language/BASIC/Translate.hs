@@ -1,13 +1,15 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Language.BASIC.Translate(translateBASIC) where
 import Control.Monad
 import Data.List
 import qualified Data.Map as M
 import Data.Map((!), fromList)
 import Data.Word
-
+import Foreign.Ptr
+import Type.Data.Num.Decimal.Literal(D3,D6)
 import LLVM.Core
 import LLVM.Util.File
-
+import LLVM.ExecutionEngine(simpleFunction)
 --import Debug.Trace
 
 import Language.BASIC.Types
@@ -46,10 +48,10 @@ translateBASIC cmds = do
     writeCodeGenModule "run.bc" mfunc
 
     -- Slow external optimizer.
-    func <- optimizeFunctionCG mfunc
+    -- func <- optimizeFunctionCG mfunc
 
     -- Use this for unoptimized code
---    func <- simpleFunction mfunc
+    func <- simpleFunction mfunc
 
     return func
 
@@ -68,7 +70,7 @@ trans cmds = do
     rand     <- newNamedFunction ExternalLinkage "rand"     :: TFunction (IO Word32)
     sin      <- newNamedFunction ExternalLinkage "sin"      :: TFunction (Double -> IO Double)
     sqrt     <- newNamedFunction ExternalLinkage "sqrt"     :: TFunction (Double -> IO Double)
-    sranddev <- newNamedFunction ExternalLinkage "sranddev" :: TFunction (IO ())
+    -- sranddev <- newNamedFunction ExternalLinkage "sranddev" :: TFunction (IO ())
     tan      <- newNamedFunction ExternalLinkage "tan"      :: TFunction (Double -> IO Double)
     trunc    <- newNamedFunction ExternalLinkage "trunc"    :: TFunction (Double -> IO Double)
     let printfd :: Function (Ptr Word8 -> Double -> IO Word32)
@@ -139,17 +141,21 @@ trans cmds = do
 		    x -> error $ "Unimplemented construct " ++ show x
             gen _ = error "gen"
 
+            -- newline = withStringNul "\n" $ \fmtn -> do
             newline = do
-                tmp <- getElementPtr fmtn (0::Word32, (0::Word32, ()))
+                tmp <- getElementPtr (fmtn::Value (Ptr (Array D3 Word8))) (0::Word32, (0::Word32, ()))
                 call printfn tmp
 
+            -- pr (Str s) = withStringNul "%s" $ \fmts -> do
             pr (Str s) = do
-	        tmp <- getElementPtr fmts (0::Word32, (0::Word32, ()))
-	        tmpa <- getElementPtr (strmap ! s) (0::Word32, (0::Word32, ()))
+	        tmp <- getElementPtr (fmts::Value (Ptr (Array D3 Word8))) (0::Word32, (0::Word32, ()))
+	        tmpa <- getElementPtr ((strmap ! s)::Value(Ptr (Array D6 Word8))) (0::Word32, (0::Word32, ()))
                 call printfs tmp tmpa
+            -- pr e = withStringNul "%.15g" $ \fmtg -> do
             pr e = do
                 d <- genExpr e
-                tmp <- getElementPtr fmtg (0::Word32, (0::Word32, ()))
+                -- tmp <- getElementPtr fmtg (0::Word32, (0::Word32, ()))
+                tmp <- getElementPtr (fmtg::Value(Ptr (Array D6 Word8))) (0::Word32, (0::Word32, ()))
                 call printfd tmp d
 
 --	    genExpr e | trace (show e) False = undefined
@@ -171,11 +177,11 @@ trans cmds = do
             genExpr (RND _) = do
                 r <- call rand
                 d <- uitofp r
-		fdiv (d :: Value Double) (0x7fffffff :: Double)
+		fdiv (d :: Value Double) (constOf (0x7fffffff :: Double))
             genExpr (SGN e) = do
                 d <- genExpr e
-                n <- fcmp FPOLT d (0 :: Double)
-                p <- fcmp FPOGT d (0 :: Double)
+                n <- fcmp FPOLT d zero -- (0 :: Value Double)
+                p <- fcmp FPOGT d zero -- (0 :: Value Double)
 		nd <- uitofp n
 		pd <- uitofp p
 		sub (pd :: Value Double) (nd :: Value Double)
@@ -201,7 +207,7 @@ trans cmds = do
                 d <- genExpr e
                 op d
 
-        call sranddev -- Make sure we get new random numbers
+        -- call sranddev -- Make sure we get new random numbers
 	p <- arrayMalloc (1000 :: Word32)
 	store p gosubStack
 	br (block $ cmdLabel $ head cmds)  -- jump to first line

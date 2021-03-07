@@ -5,7 +5,7 @@ module Language.BASIC.Parser(
     PRINT(..), END(..), LET(..), GOTO(..), IF(..), THEN(..), INPUT(..), FOR(..), TO(..), NEXT(..), STEP(..),
     Expr((:=)), (<>), (==), (<), (>), (<=), (>=), (^)
     ) where
-import Prelude hiding ((==),(<),(>),(<=),(>=),(^))
+import Prelude hiding ((==),(<),(>),(<=),(>=),(^),(<>))
 import qualified Prelude as P
 import Data.List
 import Data.Maybe
@@ -143,6 +143,9 @@ data STEP = STEP
 -- every statement.
 -- Now if we could just write 'x' instead of 'X' there
 -- would be no need for unsafePerformIO.
+instance Functor Expr where
+instance Applicative Expr where
+
 instance Monad Expr where
     a >> b = unsafePerformIO $ do push (flex a); push (flex b)
 
